@@ -1,0 +1,235 @@
+{
+    "abi": [
+        {
+            "inputs": [
+                {
+                    "internalType": "address",
+                    "name": "_circuitVerifierAddress",
+                    "type": "address"
+                },
+                {
+                    "internalType": "string",
+                    "name": "_siteName",
+                    "type": "string"
+                },
+                {
+                    "internalType": "string",
+                    "name": "_circuitName",
+                    "type": "string"
+                }
+            ],
+            "stateMutability": "nonpayable",
+            "type": "constructor"
+        },
+        {
+            "anonymous": false,
+            "inputs": [
+                {
+                    "indexed": true,
+                    "internalType": "address",
+                    "name": "requestor",
+                    "type": "address"
+                },
+                {
+                    "indexed": false,
+                    "internalType": "string",
+                    "name": "circuitName",
+                    "type": "string"
+                },
+                {
+                    "indexed": false,
+                    "internalType": "uint256",
+                    "name": "timestamp",
+                    "type": "uint256"
+                }
+            ],
+            "name": "AuthenticationRequested",
+            "type": "event"
+        },
+        {
+            "anonymous": false,
+            "inputs": [
+                {
+                    "indexed": true,
+                    "internalType": "address",
+                    "name": "user",
+                    "type": "address"
+                },
+                {
+                    "indexed": false,
+                    "internalType": "string",
+                    "name": "circuitName",
+                    "type": "string"
+                },
+                {
+                    "indexed": false,
+                    "internalType": "bool",
+                    "name": "success",
+                    "type": "bool"
+                }
+            ],
+            "name": "AuthenticationVerified",
+            "type": "event"
+        },
+        {
+            "anonymous": false,
+            "inputs": [
+                {
+                    "indexed": true,
+                    "internalType": "address",
+                    "name": "user",
+                    "type": "address"
+                },
+                {
+                    "indexed": false,
+                    "internalType": "string",
+                    "name": "jsonInfo",
+                    "type": "string"
+                }
+            ],
+            "name": "QRCodeDataRequested",
+            "type": "event"
+        },
+        {
+            "inputs": [],
+            "name": "genQRCodeInfo",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        },
+        {
+            "inputs": [],
+            "name": "getUserStatus",
+            "outputs": [
+                {
+                    "internalType": "bool",
+                    "name": "",
+                    "type": "bool"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        },
+        {
+            "inputs": [],
+            "name": "owner",
+            "outputs": [
+                {
+                    "internalType": "address",
+                    "name": "",
+                    "type": "address"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "address",
+                    "name": "",
+                    "type": "address"
+                }
+            ],
+            "name": "userAuthState",
+            "outputs": [
+                {
+                    "internalType": "enum AuthBluePrint.AuthState",
+                    "name": "",
+                    "type": "uint8"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "components": [
+                        {
+                            "components": [
+                                {
+                                    "internalType": "uint256",
+                                    "name": "X",
+                                    "type": "uint256"
+                                },
+                                {
+                                    "internalType": "uint256",
+                                    "name": "Y",
+                                    "type": "uint256"
+                                }
+                            ],
+                            "internalType": "struct ICircuitVerifier.G1Point",
+                            "name": "a",
+                            "type": "tuple"
+                        },
+                        {
+                            "components": [
+                                {
+                                    "internalType": "uint256[2]",
+                                    "name": "X",
+                                    "type": "uint256[2]"
+                                },
+                                {
+                                    "internalType": "uint256[2]",
+                                    "name": "Y",
+                                    "type": "uint256[2]"
+                                }
+                            ],
+                            "internalType": "struct ICircuitVerifier.G2Point",
+                            "name": "b",
+                            "type": "tuple"
+                        },
+                        {
+                            "components": [
+                                {
+                                    "internalType": "uint256",
+                                    "name": "X",
+                                    "type": "uint256"
+                                },
+                                {
+                                    "internalType": "uint256",
+                                    "name": "Y",
+                                    "type": "uint256"
+                                }
+                            ],
+                            "internalType": "struct ICircuitVerifier.G1Point",
+                            "name": "c",
+                            "type": "tuple"
+                        }
+                    ],
+                    "internalType": "struct ICircuitVerifier.Proof",
+                    "name": "proof",
+                    "type": "tuple"
+                },
+                {
+                    "internalType": "uint256[2]",
+                    "name": "input",
+                    "type": "uint256[2]"
+                },
+                {
+                    "internalType": "address",
+                    "name": "user",
+                    "type": "address"
+                }
+            ],
+            "name": "validateProof",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        },
+        {
+            "inputs": [],
+            "name": "verifier",
+            "outputs": [
+                {
+                    "internalType": "contract ICircuitVerifier",
+                    "name": "",
+                    "type": "address"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        }
+    ]
+}
