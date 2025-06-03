@@ -1,188 +1,298 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { CheckCircle, XCircle, Shield, RefreshCw } from "lucide-react"
-import { PendingVerificationsList } from "@/components/pending-verifications-list"
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { CheckCircle, XCircle, Shield, RefreshCw } from "lucide-react";
+import { PendingVerificationsList } from "@/components/pending-verifications-list";
+import { ethers } from "ethers";
+import contractABI from "@/contracts/ZKPassportAuth.json"; // Assuming same contract as Home
+import { useEthersWithRainbow } from "@/hooks/useEthersWithRainbow"; // Assuming same hook
 
 interface VerificationResult {
-  success: boolean
-  message: string
+  success: boolean;
+  message: string;
   details?: {
-    circuit: string
-    verifierAddress: string
-    timestamp: string
-  }
+    circuit: string;
+    verifierAddress: string;
+    timestamp: string;
+  };
 }
 
 interface PendingVerification {
-  id: string
-  type: string
-  timestamp: string
-  userId: string
+  id: string;
+  type: string;
+  timestamp: string;
+  userId: string;
+  state?: number; // Added to track auth state
+  nonce: string; // Added to match the required interface
 }
 
 export default function AdminPage() {
-  const [proofId, setProofId] = useState("")
-  const [contractAddress, setContractAddress] = useState("")
-  const [isVerifying, setIsVerifying] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null)
+  const [proofId, setProofId] = useState("");
+  const [contractAddress, setContractAddress] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [verificationResult, setVerificationResult] =
+    useState<VerificationResult | null>(null);
   const [recentVerifications, setRecentVerifications] = useState<
     Array<{ id: string; result: boolean; type: string; timestamp: string }>
-  >([])
-  const [pendingVerifications, setPendingVerifications] = useState<PendingVerification[]>([])
+  >([]);
+  const [pendingVerifications, setPendingVerifications] = useState<
+    PendingVerification[]
+  >([]);
+  const [contract, setContract] = useState<ethers.Contract | null>(null);
 
-  // Fetch pending verifications on component mount
+  // Get provider and signer from same hook as Home page
+  const { provider, signer, isConnected, getContract } = useEthersWithRainbow();
+
+  // Initialize contract instance
   useEffect(() => {
-    fetchPendingVerifications()
-  }, [])
+    if (!provider || !signer) return;
+
+    const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
+    if (!contractAddress) {
+      console.error("Contract address not found in environment variables");
+      return;
+    }
+
+    try {
+      const contractInstance = getContract(contractAddress, contractABI.abi);
+      setContract(contractInstance);
+    } catch (error) {
+      console.error("Error initializing contract:", error);
+    }
+  }, [provider, signer]);
+
+  // Fetch verifications on mount
+  useEffect(() => {
+    if (contract) {
+      fetchPendingVerifications();
+    }
+  }, [contract, isConnected]);
 
   const fetchPendingVerifications = async () => {
-    setIsLoading(true)
+    setIsLoading(true);
     try {
-      // In a real implementation, this would call your API to get pending verifications
-      // For demo purposes, we'll simulate a response
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      if (!contract) throw new Error("Contract not initialized");
 
-      const mockPendingVerifications: PendingVerification[] = [
-        {
-          id: "proof-" + Math.random().toString(36).substring(2, 10),
-          type: "age",
-          timestamp: new Date().toISOString(),
-          userId: "user-123",
-        },
-        {
-          id: "proof-" + Math.random().toString(36).substring(2, 10),
-          type: "nationality",
-          timestamp: new Date(Date.now() - 30 * 60000).toISOString(), // 30 minutes ago
-          userId: "user-456",
-        },
-        {
-          id: "proof-" + Math.random().toString(36).substring(2, 10),
-          type: "document",
-          timestamp: new Date(Date.now() - 120 * 60000).toISOString(), // 2 hours ago
-          userId: "user-789",
-        },
-      ]
+      // Query QRCodeDataRequested events
+      const filter = contract.filters.QRCodeDataRequested();
+      const events = await contract.queryFilter(filter, -10000, "latest");
 
-      setPendingVerifications(mockPendingVerifications)
+      const verificationPromises = events.map(async (event) => {
+        console.log("Event:", event);
+        const userAddress = event.args?.user;
+        const authState = await contract.userAuthState(userAddress);
+
+        let jsonInfo;
+
+        try {
+          jsonInfo = JSON.parse(event.args?.jsonInfo || "{}");
+          console.log("JSON Info:", jsonInfo);
+        } catch {
+          jsonInfo = { rawData: event.args?.jsonInfo };
+        }
+
+        const verificationType = jsonInfo.c || "unknown";
+
+        return {
+          id: event.transactionHash, // Using tx hash as unique ID
+          type: verificationType,
+          timestamp: (await event.getBlock()).timestamp.toString(),
+          userId: userAddress,
+          state: authState,
+          nonce: jsonInfo.n,
+        };
+      });
+
+      const verifications = await Promise.all(verificationPromises);
+
+      // Sort based on state
+      const pending = verifications.filter((v) => v.state === 1);
+      const verified = verifications.filter((v) => v.state === 3);
+      const failed = verifications.filter((v) => v.state === 4);
+
+      setPendingVerifications(pending);
+      setRecentVerifications(
+        [...verified, ...failed].map((v) => ({
+          id: v.id,
+          result: v.state === 3,
+          type: v.type,
+          timestamp: new Date(parseInt(v.timestamp) * 1000).toISOString(),
+        }))
+      );
     } catch (error) {
-      console.error("Error fetching pending verifications:", error)
+      console.error("Error fetching verifications:", error);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   const handlePendingItemClick = async (item: PendingVerification) => {
-    setProofId(item.id)
-    setIsVerifying(true)
+    setProofId(item.id); // Set the proof ID for UI purposes
+    await verifyProof(item.userId, item.type, item.nonce); // Call verifyProof with the required parameters
+  };
 
+  const structureProofData = (proof: any) => {
+    const proofInput = {
+      a: {
+        X: BigInt(proof.proof.a[0]),
+        Y: BigInt(proof.proof.a[1]),
+      },
+      b: {
+        X: [BigInt(proof.proof.b[0][0]), BigInt(proof.proof.b[0][1])],
+        Y: [BigInt(proof.proof.b[1][0]), BigInt(proof.proof.b[1][1])],
+      },
+      c: {
+        X: BigInt(proof.proof.c[0]),
+        Y: BigInt(proof.proof.c[1]),
+      },
+    };
+
+    const inputArray = [BigInt(proof.inputs[0]), BigInt(proof.inputs[1])];
+
+    return { proofInput, inputArray };
+  };
+
+  const verifyProofWithData: (
+    proofId: string,
+    circuitAddress: string,
+    proofJson: any,
+    user_id: string
+  ) => Promise<void> = async (
+    proofId: string,
+    circuitAddress: string,
+    proofJson: any,
+    user_id: string
+  ) => {
     try {
-      // In a real implementation, this would call your node server API
-      // to get the proof.json and verifier contract address
-      const response = await fetch(`/api/proof-details?id=${item.id}`)
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch proof details")
+      if (!contract) {
+        throw new Error("Contract not initialized");
       }
 
-      const data = await response.json()
+      console.log("Proof Data", proofJson);
 
-      // Set the contract address from the response
-      setContractAddress(data.verifierAddress)
+      // Structure the proof data
+      const { proofInput, inputArray } = structureProofData(proofJson);
 
-      // Verify the proof using the fetched data
-      await verifyProofWithData(item.id, data.verifierAddress, data.proofJson)
+      // Listen for the AuthenticationVerified event
+      const filter = contract.filters.AuthenticationVerified(user_id);
+      contract.once(filter, (user, circuitName, success) => {
+        console.log("AuthenticationVerified event received:", {
+          user,
+          circuitName,
+          success,
+        });
+
+        // Show toast notification based on success
+        if (success) {
+          toast({
+            title: "Verification Successful",
+            description: `Circuit: ${circuitName}`,
+            variant: "default",
+          });
+        } else {
+          toast({
+            title: "Verification Failed",
+            description: `Circuit: ${circuitName}`,
+            variant: "destructive",
+          });
+        }
+
+        // Update the verification result
+        setVerificationResult({
+          success,
+          message: success ? "Verification successful" : "Verification failed",
+          details: {
+            circuit: circuitName,
+            verifierAddress: circuitAddress,
+            timestamp: new Date().toISOString(),
+          },
+        });
+
+        // Remove the verified item from pending verifications if successful
+        if (success) {
+          setPendingVerifications((prev) =>
+            prev.filter((item) => item.id !== proofId)
+          );
+        }
+      });
+
+      // Call the validateProof function on the contract
+      console.log("Calling validateProof with:", {
+        proofInput,
+        inputArray,
+        user_id,
+      });
+      const tx = await contract.validateProof(proofInput, inputArray, user_id);
+      await tx.wait(); // Wait for the transaction to be mined
+
+      console.log("Transaction confirmed:", tx.hash);
     } catch (error) {
-      console.error("Error handling pending verification:", error)
-      setVerificationResult({
-        success: false,
-        message: "Error fetching proof details",
-      })
-    } finally {
-      setIsVerifying(false)
-    }
-  }
+      console.error("Error verifying proof:", error);
 
-  const verifyProofWithData = async (proofId: string, verifierAddress: string, proofJson: any) => {
-    try {
-      // In a real implementation, this would:
-      // 1. Use the existing verifier.sol contract in the DApp
-      // 2. Cross-check the verification address
-      // 3. Call the verifyTx function with the proof data
+      // Show error toast
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error ? error.message : "Unknown error occurred",
+        variant: "destructive",
+      });
 
-      // For demo purposes, we'll simulate a verification
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-
-      const mockResult: VerificationResult = {
-        success: Math.random() > 0.2, // 80% chance of success for demo
-        message: Math.random() > 0.2 ? "Verification successful" : "Verification failed",
-        details: {
-          circuit: proofId.includes("age") ? "age" : proofId.includes("nationality") ? "nationality" : "document",
-          verifierAddress: verifierAddress,
-          timestamp: new Date().toISOString(),
-        },
-      }
-
-      setVerificationResult(mockResult)
-
-      // Add to recent verifications
-      setRecentVerifications((prev) => [
-        {
-          id: proofId,
-          result: mockResult.success,
-          type: mockResult.details?.circuit || "unknown",
-          timestamp: new Date().toISOString(),
-        },
-        ...prev.slice(0, 4), // Keep only the 5 most recent
-      ])
-
-      // Remove from pending if successful
-      if (mockResult.success) {
-        setPendingVerifications((prev) => prev.filter((item) => item.id !== proofId))
-      }
-    } catch (error) {
-      console.error("Error verifying proof:", error)
+      // Update the verification result with failure
       setVerificationResult({
         success: false,
         message: "Error occurred during verification",
-      })
+      });
     }
-  }
+  };
 
-  const verifyProof = async () => {
-    if (!proofId) return
-
-    setIsVerifying(true)
+  const verifyProof = async (user_id: string, type: string, nonces: string) => {
+    setIsVerifying(true);
     try {
       // In a real implementation, this would call your API to get the proof details
-      const response = await fetch(`/api/proof-details?id=${proofId}`)
+      // http://localhost:3000/api/get-proof?user_id=user123&type=age&nonces=nonces123
+      const response = await fetch(
+        `http://localhost:3000/api/get-proof?user_id=${user_id}&type=${type}&nonces=${nonces}`
+      );
 
       if (!response.ok) {
-        throw new Error("Failed to fetch proof details")
+        throw new Error("Failed to fetch proof details");
       }
 
-      const data = await response.json()
+      const data = await response.json();
+      console.log("Responce :", data);
 
-      // Verify the proof using the fetched data
-      await verifyProofWithData(proofId, contractAddress || data.verifierAddress, data.proofJson)
+      // Call the verification function with the fetched data
+      await verifyProofWithData(
+        `${user_id}-${type}-${nonces}`, // Use a unique ID based on the parameters
+        data.address,
+        data.proof,
+        user_id
+      );
     } catch (error) {
-      console.error("Error verifying proof:", error)
+      console.error("Error verifying proof:", error);
       setVerificationResult({
         success: false,
         message: "Error occurred during verification",
-      })
+      });
     } finally {
-      setIsVerifying(false)
+      setIsVerifying(false);
     }
-  }
+  };
 
   return (
     <main className="flex min-h-screen flex-col p-4 md:p-8">
@@ -192,7 +302,10 @@ export default function AdminPage() {
             <Shield className="h-8 w-8 text-primary mr-2" />
             <h1 className="text-2xl font-bold">ZK Passport Admin</h1>
           </div>
-          <Button variant="outline" onClick={() => (window.location.href = "/")}>
+          <Button
+            variant="outline"
+            onClick={() => (window.location.href = "/")}
+          >
             Back to Home
           </Button>
         </div>
@@ -205,12 +318,14 @@ export default function AdminPage() {
           </TabsList>
 
           <TabsContent value="pending">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="md:col-span-1">
                 <Card>
                   <CardHeader>
                     <CardTitle>Pending Verifications</CardTitle>
-                    <CardDescription>Users waiting for verification</CardDescription>
+                    <CardDescription>
+                      Users waiting for verification
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <PendingVerificationsList
@@ -225,7 +340,7 @@ export default function AdminPage() {
                       variant="outline"
                       className="w-full"
                       onClick={fetchPendingVerifications}
-                      disabled={isLoading}
+                      disabled={isLoading || !contract}
                     >
                       {isLoading ? (
                         <>
@@ -243,40 +358,62 @@ export default function AdminPage() {
                 </Card>
               </div>
 
-              <div className="md:col-span-2">
+              <div className="md:col-span-1">
                 <Card>
                   <CardHeader>
                     <CardTitle>Verification Result</CardTitle>
-                    <CardDescription>The result of the zero-knowledge proof verification</CardDescription>
+                    <CardDescription>
+                      The result of the zero-knowledge proof verification
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     {verificationResult ? (
                       <div className="space-y-4">
-                        <Alert variant={verificationResult.success ? "default" : "destructive"}>
+                        <Alert
+                          variant={
+                            verificationResult.success
+                              ? "default"
+                              : "destructive"
+                          }
+                        >
                           {verificationResult.success ? (
                             <CheckCircle className="h-4 w-4" />
                           ) : (
                             <XCircle className="h-4 w-4" />
                           )}
                           <AlertTitle>
-                            {verificationResult.success ? "Verification Successful" : "Verification Failed"}
+                            {verificationResult.success
+                              ? "Verification Successful"
+                              : "Verification Failed"}
                           </AlertTitle>
-                          <AlertDescription>{verificationResult.message}</AlertDescription>
+                          <AlertDescription>
+                            {verificationResult.message}
+                          </AlertDescription>
                         </Alert>
 
                         {verificationResult.details && (
                           <div className="pt-2 space-y-2 text-sm">
                             <div className="flex justify-between">
                               <span className="text-gray-500">Circuit:</span>
-                              <span className="font-mono">{verificationResult.details.circuit}</span>
+                              <span className="font-mono">
+                                {verificationResult.details.circuit}
+                              </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-500">Verifier Address:</span>
-                              <span className="font-mono">{verificationResult.details.verifierAddress}</span>
+                              <span className="text-gray-500">
+                                Verifier Address:
+                              </span>
+                              <span className="font-mono">
+                                {verificationResult.details.verifierAddress}
+                              </span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-gray-500">Timestamp:</span>
-                              <span>{new Date(verificationResult.details.timestamp).toLocaleString()}</span>
+                              <span>
+                                {new Date(
+                                  verificationResult.details.timestamp
+                                ).toLocaleString()}
+                              </span>
                             </div>
                           </div>
                         )}
@@ -284,7 +421,9 @@ export default function AdminPage() {
                     ) : (
                       <div className="flex flex-col items-center justify-center h-40 text-gray-400">
                         <p>No verification performed yet</p>
-                        <p className="text-sm mt-2">Select a pending verification from the list</p>
+                        <p className="text-sm mt-2">
+                          Select a pending verification from the list
+                        </p>
                       </div>
                     )}
                   </CardContent>
@@ -298,7 +437,9 @@ export default function AdminPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Verify ZK Proof</CardTitle>
-                  <CardDescription>Enter the proof ID and contract address to verify</CardDescription>
+                  <CardDescription>
+                    Enter the proof ID and contract address to verify
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
@@ -311,7 +452,9 @@ export default function AdminPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="contract-address">Verifier Contract Address (Optional)</Label>
+                    <Label htmlFor="contract-address">
+                      Verifier Contract Address (Optional)
+                    </Label>
                     <Input
                       id="contract-address"
                       placeholder="0x..."
@@ -319,12 +462,17 @@ export default function AdminPage() {
                       onChange={(e) => setContractAddress(e.target.value)}
                     />
                     <p className="text-xs text-gray-500">
-                      If left empty, the system will use the default verifier for the proof type
+                      If left empty, the system will use the default verifier
+                      for the proof type
                     </p>
                   </div>
                 </CardContent>
                 <CardFooter>
-                  <Button className="w-full" onClick={verifyProof} disabled={isVerifying || !proofId}>
+                  <Button
+                    className="w-full"
+                    // onClick={verifyProof}
+                    disabled={isVerifying || !proofId}
+                  >
                     {isVerifying ? (
                       <>
                         <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
@@ -340,36 +488,56 @@ export default function AdminPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Verification Result</CardTitle>
-                  <CardDescription>The result of the zero-knowledge proof verification</CardDescription>
+                  <CardDescription>
+                    The result of the zero-knowledge proof verification
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {verificationResult ? (
                     <div className="space-y-4">
-                      <Alert variant={verificationResult.success ? "default" : "destructive"}>
+                      <Alert
+                        variant={
+                          verificationResult.success ? "default" : "destructive"
+                        }
+                      >
                         {verificationResult.success ? (
                           <CheckCircle className="h-4 w-4" />
                         ) : (
                           <XCircle className="h-4 w-4" />
                         )}
                         <AlertTitle>
-                          {verificationResult.success ? "Verification Successful" : "Verification Failed"}
+                          {verificationResult.success
+                            ? "Verification Successful"
+                            : "Verification Failed"}
                         </AlertTitle>
-                        <AlertDescription>{verificationResult.message}</AlertDescription>
+                        <AlertDescription>
+                          {verificationResult.message}
+                        </AlertDescription>
                       </Alert>
 
                       {verificationResult.details && (
                         <div className="pt-2 space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-gray-500">Circuit:</span>
-                            <span className="font-mono">{verificationResult.details.circuit}</span>
+                            <span className="font-mono">
+                              {verificationResult.details.circuit}
+                            </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-500">Verifier Address:</span>
-                            <span className="font-mono">{verificationResult.details.verifierAddress}</span>
+                            <span className="text-gray-500">
+                              Verifier Address:
+                            </span>
+                            <span className="font-mono">
+                              {verificationResult.details.verifierAddress}
+                            </span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-500">Timestamp:</span>
-                            <span>{new Date(verificationResult.details.timestamp).toLocaleString()}</span>
+                            <span>
+                              {new Date(
+                                verificationResult.details.timestamp
+                              ).toLocaleString()}
+                            </span>
                           </div>
                         </div>
                       )}
@@ -377,7 +545,9 @@ export default function AdminPage() {
                   ) : (
                     <div className="flex flex-col items-center justify-center h-40 text-gray-400">
                       <p>No verification performed yet</p>
-                      <p className="text-sm mt-2">Enter a proof ID and click verify</p>
+                      <p className="text-sm mt-2">
+                        Enter a proof ID and click verify
+                      </p>
                     </div>
                   )}
                 </CardContent>
@@ -389,13 +559,18 @@ export default function AdminPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Recent Verifications</CardTitle>
-                <CardDescription>History of recent verification attempts</CardDescription>
+                <CardDescription>
+                  History of recent verification attempts
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {recentVerifications.length > 0 ? (
                   <div className="space-y-4">
                     {recentVerifications.map((verification, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 border rounded-lg"
+                      >
                         <div className="flex items-center">
                           {verification.result ? (
                             <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
@@ -404,11 +579,21 @@ export default function AdminPage() {
                           )}
                           <div>
                             <p className="font-medium">{verification.id}</p>
-                            <p className="text-sm text-gray-500">{new Date(verification.timestamp).toLocaleString()}</p>
+                            <p className="text-sm text-gray-500">
+                              {new Date(
+                                verification.timestamp
+                              ).toLocaleString()}
+                            </p>
                           </div>
                         </div>
                         <div className="flex items-center">
-                          <Badge variant={verification.result ? "default" : "destructive"}>{verification.type}</Badge>
+                          <Badge
+                            variant={
+                              verification.result ? "default" : "destructive"
+                            }
+                          >
+                            {verification.type}
+                          </Badge>
                         </div>
                       </div>
                     ))}
@@ -416,7 +601,9 @@ export default function AdminPage() {
                 ) : (
                   <div className="flex flex-col items-center justify-center h-40 text-gray-400">
                     <p>No verification history</p>
-                    <p className="text-sm mt-2">Verification records will appear here</p>
+                    <p className="text-sm mt-2">
+                      Verification records will appear here
+                    </p>
                   </div>
                 )}
               </CardContent>
@@ -425,6 +612,8 @@ export default function AdminPage() {
         </Tabs>
       </div>
     </main>
-  )
+  );
 }
-
+function toast(arg0: { title: string; description: string; variant: string }) {
+  throw new Error("Function not implemented.");
+}

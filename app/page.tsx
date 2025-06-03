@@ -53,11 +53,7 @@ export default function Home() {
     }
 
     try {
-      const contractInstance = new ethers.Contract(
-        contractAddress,
-        contractABI.abi,
-        signer
-      );
+      const contractInstance = getContract(contractAddress, contractABI.abi);
       setContract(contractInstance);
       console.log("Contract instance created:", contractInstance);
     } catch (error) {

@@ -1,25 +1,32 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Clock, RefreshCw } from "lucide-react"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Clock, Hash, RefreshCw } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface PendingVerification {
-  id: string
-  type: string
-  timestamp: string
-  userId: string
+  id: string;
+  type: string;
+  timestamp: string;
+  userId: string;
+  nonce: string;
 }
 
 interface PendingVerificationsListProps {
-  items: PendingVerification[]
-  isLoading: boolean
-  onItemClick: (item: PendingVerification) => void
-  onRefresh: () => void
+  items: PendingVerification[];
+  isLoading: boolean;
+  onItemClick: (item: PendingVerification) => void;
+  onRefresh: () => void;
 }
 
-export function PendingVerificationsList({ items, isLoading, onItemClick, onRefresh }: PendingVerificationsListProps) {
+export function PendingVerificationsList({
+  items,
+  isLoading,
+  onItemClick,
+  onRefresh,
+}: PendingVerificationsListProps) {
+  console.log("Pending Component Rendered", items);
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -33,7 +40,7 @@ export function PendingVerificationsList({ items, isLoading, onItemClick, onRefr
           </div>
         ))}
       </div>
-    )
+    );
   }
 
   if (items.length === 0) {
@@ -45,13 +52,13 @@ export function PendingVerificationsList({ items, isLoading, onItemClick, onRefr
           Refresh
         </Button>
       </div>
-    )
+    );
   }
 
   return (
     <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
       {items.map((item) => {
-        const timeAgo = getTimeAgo(new Date(item.timestamp))
+        const timeAgo = getTimeAgo(new Date(item.timestamp));
 
         return (
           <Button
@@ -62,10 +69,10 @@ export function PendingVerificationsList({ items, isLoading, onItemClick, onRefr
           >
             <div className="flex items-center justify-between w-full">
               <div className="flex-1 text-left">
-                <p className="font-medium truncate">{item.id}</p>
+                <p className="font-medium truncate">{item.userId}</p>
                 <p className="text-sm text-gray-500 flex items-center">
-                  <Clock className="h-3 w-3 mr-1" />
-                  {timeAgo}
+                  <Hash className="h-3 w-3 mr-1" />
+                  {item.nonce}
                 </p>
               </div>
               <Badge variant="outline" className="ml-2">
@@ -73,31 +80,30 @@ export function PendingVerificationsList({ items, isLoading, onItemClick, onRefr
               </Badge>
             </div>
           </Button>
-        )
+        );
       })}
     </div>
-  )
+  );
 }
 
 function getTimeAgo(date: Date): string {
-  const now = new Date()
-  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+  const now = new Date();
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
   if (diffInSeconds < 60) {
-    return `${diffInSeconds} seconds ago`
+    return `${diffInSeconds} seconds ago`;
   }
 
-  const diffInMinutes = Math.floor(diffInSeconds / 60)
+  const diffInMinutes = Math.floor(diffInSeconds / 60);
   if (diffInMinutes < 60) {
-    return `${diffInMinutes} minute${diffInMinutes === 1 ? "" : "s"} ago`
+    return `${diffInMinutes} minute${diffInMinutes === 1 ? "" : "s"} ago`;
   }
 
-  const diffInHours = Math.floor(diffInMinutes / 60)
+  const diffInHours = Math.floor(diffInMinutes / 60);
   if (diffInHours < 24) {
-    return `${diffInHours} hour${diffInHours === 1 ? "" : "s"} ago`
+    return `${diffInHours} hour${diffInHours === 1 ? "" : "s"} ago`;
   }
 
-  const diffInDays = Math.floor(diffInHours / 24)
-  return `${diffInDays} day${diffInDays === 1 ? "" : "s"} ago`
+  const diffInDays = Math.floor(diffInHours / 24);
+  return `${diffInDays} day${diffInDays === 1 ? "" : "s"} ago`;
 }
-
